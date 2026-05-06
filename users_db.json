@@ -1,0 +1,14 @@
+{
+    "SEN-D10E": {
+        "role": "Senior (60+)",
+        "competences": "<!DOCTYPE html>\n<html lang=\"fr\">\n<head>\n    <meta charset=\"UTF-8\">\n    <meta http-equiv=\"X-UA-Compatible\" content=\"IE=edge\">\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n    <title>Analyse de r\u00e9cit de vie</title>\n</head>\n<body>\n    <h1>Analyse du r\u00e9cit de vie</h1>\n    <h2>Comp\u00e9tences cl\u00e9s :</h2>\n    <ul>\n        <li>D\u00e9veloppeur Python</li>\n        <li>Exp\u00e9rience de travail sur le test de m\u00e9ditation</li>\n        <li>Exp\u00e9rience en d\u00e9finition de Paquin</li>\n    </ul>\n\n    <h2>Id\u00e9e de Mentorat pour un jeune :</h2>\n    <p>Je sugg\u00e8re \u00e0 un jeune de chercher un mentor dans le domaine de la m\u00e9ditation pour approfondir ses connaissances et comp\u00e9tences dans ce domaine.</p>\n\n    <h2>Id\u00e9e d'Expertise pour une entreprise :</h2>\n    <p>Une entreprise pourrait b\u00e9n\u00e9ficier de l'expertise de cette personne pour d\u00e9velopper des applications ou des outils li\u00e9s \u00e0 la m\u00e9ditation et au bien-\u00eatre, en tirant parti de son exp\u00e9rience dans ce domaine.</p>\n</body>\n</html>"
+    },
+    "JEU-0C10": {
+        "role": "Jeune / \u00c9tudiant",
+        "competences": null
+    },
+    "JEU-2562": {
+        "role": "Jeune / \u00c9tudiant",
+        "profil_ia": null
+    }
+}

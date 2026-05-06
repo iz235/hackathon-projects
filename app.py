@@ -1,307 +1,268 @@
 import streamlit as st
 import os
-import tempfile
+import time
+import uuid
+import json
+import speech_recognition as sr
 from dotenv import load_dotenv
-from PIL import Image
-import base64
-from io import BytesIO
-from pathlib import Path
-from openai import OpenAI
-
-# --- IMPORTS CORRIGÉS ET VALIDÉS ---
-from langchain_community.document_loaders import PyPDFLoader
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
-from langchain_core.messages import HumanMessage
 
-# 1. Charger la clé API depuis le fichier .env
+# =========================================================
+# 1. CONFIGURATION ET STYLES
+# =========================================================
+st.set_page_config(page_title="AgoraGen", page_icon="💙", layout="wide")
 load_dotenv()
 
-# Vérification de sécurité
-if not os.getenv("OPENAI_API_KEY"):
-    st.error("⚠️ Clé API manquante ! Vérifiez votre fichier .env")
-    st.stop()
-
-# --- FONCTION DE SYNTHÈSE VOCALE ---
-def text_to_speech(text):
-    """Convertit le texte en audio avec OpenAI TTS"""
-    try:
-        client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-        
-        response = client.audio.speech.create(
-            model="tts-1",
-            voice="nova",  # Voix féminine douce et chaleureuse
-            input=text,
-            speed=0.95  # Légèrement plus lent pour une meilleure compréhension
-        )
-        
-        # Sauvegarder temporairement l'audio
-        audio_path = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3")
-        response.stream_to_file(audio_path.name)
-        
-        return audio_path.name
-    except Exception as e:
-        st.error(f"Erreur lors de la génération audio : {e}")
-        return None
-
-# --- CONFIGURATION DE LA PAGE ---
-st.set_page_config(page_title="Assistant Aidant IA", page_icon="💙")
-
-st.title("💙 Assistant Intelligent pour Aidants")
+# CSS pour le design
 st.markdown("""
-**Objectif :** Soulager votre charge mentale. Déposez un document médical (PDF, image d'ordonnance ou compte-rendu), 
-et je vous aide à comprendre et à organiser les prochaines étapes.
-""")
+<style>
+    .stApp { background-color: #f4f6f7; }
+    .chat-bubble {
+        background-color: white; padding: 20px; border-radius: 20px;
+        box-shadow: 0 4px 10px rgba(0,0,0,0.1); margin-bottom: 20px;
+        border-left: 5px solid #3498db;
+    }
+    .id-card {
+        background-color: #e8f8f5; border: 2px dashed #27ae60;
+        padding: 15px; border-radius: 10px; text-align: center;
+        font-size: 24px; font-weight: bold; color: #27ae60;
+        margin: 10px 0;
+    }
+    .role-badge { 
+        padding: 5px 10px; border-radius: 5px; font-weight: bold; color: white;
+        display: inline-block; margin-bottom: 10px;
+    }
+    .nav-btn { width: 100%; margin-bottom: 5px; }
+</style>
+""", unsafe_allow_html=True)
 
-# --- BARRE LATÉRALE (Configuration) ---
-with st.sidebar:
-    st.header("1. Importez le document")
-    uploaded_file = st.file_uploader(
-        "Choisissez un fichier", 
-        type=["pdf", "png", "jpg", "jpeg"]
-    )
-    
-    st.markdown("---")
-    st.markdown("**🔊 Lecture vocale**")
-    st.info("Après chaque réponse, vous pourrez écouter l'audio généré automatiquement.")
-    
-    st.markdown("---")
-    st.markdown("**Confidentialité :**")
-    st.info("Les données sont traitées temporairement et ne sont pas conservées. (Privacy by Design)")
+# =========================================================
+# 2. GESTION BASE DE DONNÉES (JSON)
+# =========================================================
+DB_FILE = "users_db.json"
 
-# --- FONCTION POUR ANALYSER LES IMAGES ---
-def encode_image(image_file):
-    """Encode l'image en base64 pour l'API OpenAI Vision"""
-    return base64.b64encode(image_file.getvalue()).decode('utf-8')
+def charger_donnees():
+    if not os.path.exists(DB_FILE): return {}
+    try:
+        with open(DB_FILE, "r") as f: return json.load(f)
+    except: return {}
 
-def analyze_image_document(image_file, question):
-    """Analyse un document médical via image avec GPT-4 Vision"""
-    base64_image = encode_image(image_file)
-    
-    llm = ChatOpenAI(model_name="gpt-4o", temperature=0, max_tokens=2000)
-    
-    message = HumanMessage(
-        content=[
-            {
-                "type": "text",
-                "text": f"""Tu es un assistant médical spécialisé dans l'aide aux aidants familiaux.
-Analyse attentivement ce document médical (ordonnance, compte-rendu, radiologie, etc.).
+def sauvegarder_donnees(data):
+    with open(DB_FILE, "w") as f: json.dump(data, f, indent=4)
 
-RÈGLES IMPORTANTES :
-1. LIS TRÈS ATTENTIVEMENT tous les détails du document (diagnostic, résultats, prescriptions)
-2. Utilise un ton empathique et rassurant
-3. Explique les termes médicaux complexes entre parenthèses
-4. Si tu vois des médicaments, rendez-vous ou examens prescrits, liste-les clairement
-5. Base-toi UNIQUEMENT sur ce qui est écrit dans le document - ne devine JAMAIS
-6. Si le document mentionne des résultats anormaux, explique-les simplement sans alarmer
+# Initialisation Session
+if 'user_status' not in st.session_state: st.session_state['user_status'] = None
+if 'current_user_id' not in st.session_state: st.session_state['current_user_id'] = None
+if 'user_type' not in st.session_state: st.session_state['user_type'] = None
+if 'transcript_temp' not in st.session_state: st.session_state['transcript_temp'] = ""
+if 'page_active' not in st.session_state: st.session_state['page_active'] = "profil" # profil, mentorat, certification
 
-Question de l'aidant : {question}
+# =========================================================
+# 3. FONCTIONS IA & AUDIO
+# =========================================================
 
-Réponds de manière structurée et claire."""
-            },
-            {
-                "type": "image_url",
-                "image_url": {
-                    "url": f"data:image/jpeg;base64,{base64_image}"
-                }
-            }
-        ]
-    )
-    
-    response = llm.invoke([message])
-    return response.content
-
-# --- FONCTIONNEL ---
-
-if uploaded_file is not None:
-    file_type = uploaded_file.type
-    
-    # Détection du type de fichier
-    is_image = file_type.startswith('image/')
-    is_pdf = file_type == 'application/pdf'
-    
-    if is_image:
-        # Afficher l'image uploadée
-        st.success("✅ Image analysée avec succès !")
-        image = Image.open(uploaded_file)
-        st.image(image, caption="Document uploadé", use_container_width=True)
-        
-        # Interface de Chat pour images
-        st.divider()
-        st.subheader("💬 Posez vos questions sur ce document")
-        
-        # Boutons rapides
-        col1, col2 = st.columns(2)
-        if col1.button("Que dois-je faire maintenant ?"):
-            user_question = "Analyse ce document médical et dis-moi : quelles sont les actions prioritaires ? Y a-t-il des médicaments à prendre, des examens à faire, ou des rendez-vous à prévoir ?"
-            with st.spinner("Analyse en cours..."):
-                try:
-                    # Reset file pointer
-                    uploaded_file.seek(0)
-                    reponse = analyze_image_document(uploaded_file, user_question)
-                    st.write(reponse)
-                    
-                    # Lecture vocale
-                    with st.spinner("🔊 Génération de l'audio..."):
-                        audio_file = text_to_speech(reponse)
-                        if audio_file:
-                            st.audio(audio_file, format='audio/mp3')
-                            st.success("✅ Vous pouvez écouter la réponse ci-dessus")
-                except Exception as e:
-                    st.error(f"Erreur : {e}")
-        
-        if col2.button("Explique-moi ce document simplement"):
-            user_question = "Explique-moi ce document médical de façon simple et rassurante. Qu'est-ce que ça dit exactement ? Quels sont les résultats et que signifient-ils ?"
-            with st.spinner("Traduction en langage simple..."):
-                try:
-                    uploaded_file.seek(0)
-                    reponse = analyze_image_document(uploaded_file, user_question)
-                    st.write(reponse)
-                    
-                    # Lecture vocale
-                    with st.spinner("🔊 Génération de l'audio..."):
-                        audio_file = text_to_speech(reponse)
-                        if audio_file:
-                            st.audio(audio_file, format='audio/mp3')
-                            st.success("✅ Vous pouvez écouter la réponse ci-dessus")
-                except Exception as e:
-                    st.error(f"Erreur : {e}")
-        
-        # Zone de texte libre
-        user_input = st.text_input("Ou écrivez votre question ici :")
-        if user_input:
-            with st.spinner("Réflexion de l'assistant..."):
-                try:
-                    uploaded_file.seek(0)
-                    reponse = analyze_image_document(uploaded_file, user_input)
-                    st.markdown(reponse)
-                    
-                    # Lecture vocale
-                    with st.spinner("🔊 Génération de l'audio..."):
-                        audio_file = text_to_speech(reponse)
-                        if audio_file:
-                            st.audio(audio_file, format='audio/mp3')
-                            st.success("✅ Vous pouvez écouter la réponse ci-dessus")
-                except Exception as e:
-                    st.error(f"Erreur : {e}")
-    
-    elif is_pdf:
-        # 1. Sauvegarde temporaire du fichier pour que LangChain puisse le lire
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
-            tmp_file.write(uploaded_file.getvalue())
-            tmp_file_path = tmp_file.name
-
-        # 2. Chargement et lecture du PDF
-        st.success("✅ Document PDF analysé avec succès !")
-        loader = PyPDFLoader(tmp_file_path)
-        pages = loader.load_and_split()
-
-        # 3. Initialisation de l'IA (Le Cerveau)
+def ecouter_micro():
+    r = sr.Recognizer()
+    with sr.Microphone() as source:
+        placeholder = st.empty()
+        placeholder.info("🎙️ J'écoute... Parlez maintenant !")
         try:
-            llm = ChatOpenAI(model_name="gpt-3.5-turbo", temperature=0, max_tokens=2000)
-        except Exception as e:
-            st.error(f"Erreur de connexion OpenAI : {e}")
-            st.stop()
-
-        # 4. Le PROMPT amélioré
-        template_perso = """Tu es un assistant médical spécialisé dans l'aide aux aidants familiaux et aux personnes âgées.
-Ta mission est d'analyser ce document médical et de l'expliquer simplement.
-
-RÈGLES IMPORTANTES :
-1. LIS ATTENTIVEMENT le document - base-toi sur les informations RÉELLES qu'il contient
-2. Si c'est un compte-rendu radiologique ou d'imagerie : explique les résultats trouvés (ex: syndrome alvéolaire, épanchement, etc.)
-3. Si c'est une ordonnance : liste les médicaments prescrits
-4. Utilise un ton empathique, rassurant et respectueux
-5. Explique les termes médicaux complexes entre parenthèses avec des mots simples
-6. Si tu vois des rendez-vous ou examens à faire, liste-les clairement
-7. NE DEVINE JAMAIS - réponds uniquement basé sur le document
-
-Contexte du document :
-{context}
-
-Question de l'aidant : {question}
-
-Réponse structurée et précise :"""
-        
-        PROMPT = ChatPromptTemplate.from_template(template_perso)
-        
-        # Créer la chaîne avec LCEL
-        def format_docs(docs):
-            return "\n\n".join([doc.page_content for doc in docs])
-        
-        from langchain_core.runnables import RunnablePassthrough
-        chain = (
-            {"context": lambda x: format_docs(pages), "question": RunnablePassthrough()}
-            | PROMPT
-            | llm
-            | StrOutputParser()
-        )
-
-        # Fonction helper pour exécuter la chaîne
-        def ask_question(question):
-            return chain.invoke(question)
-
-        # 5. Interface de Chat
-        st.divider()
-        st.subheader("💬 Posez vos questions sur ce document")
-        
-        # Boutons rapides
-        col1, col2 = st.columns(2)
-        if col1.button("Que dois-je faire maintenant ?"):
-            user_question = "Analyse ce document et dis-moi : quelles sont les actions prioritaires ? Y a-t-il des médicaments à prendre, des examens à faire, ou des rendez-vous à prévoir ?"
-            with st.spinner("Analyse en cours..."):
-                try:
-                    reponse = ask_question(user_question)
-                    st.write(reponse)
-                    
-                    # Lecture vocale
-                    with st.spinner("🔊 Génération de l'audio..."):
-                        audio_file = text_to_speech(reponse)
-                        if audio_file:
-                            st.audio(audio_file, format='audio/mp3')
-                            st.success("✅ Vous pouvez écouter la réponse ci-dessus")
-                except Exception as e:
-                    st.error(f"Erreur : {e}")
-
-        if col2.button("Explique-moi ce document simplement"):
-            user_question = "Explique-moi ce document médical de façon simple et rassurante. Qu'est-ce que ça dit exactement ? Quels sont les résultats et que signifient-ils ?"
-            with st.spinner("Traduction en langage simple..."):
-                try:
-                    reponse = ask_question(user_question)
-                    st.write(reponse)
-                    
-                    # Lecture vocale
-                    with st.spinner("🔊 Génération de l'audio..."):
-                        audio_file = text_to_speech(reponse)
-                        if audio_file:
-                            st.audio(audio_file, format='audio/mp3')
-                            st.success("✅ Vous pouvez écouter la réponse ci-dessus")
-                except Exception as e:
-                    st.error(f"Erreur : {e}")
-
-        # Zone de texte libre
-        user_input = st.text_input("Ou écrivez votre question ici :")
-        if user_input:
-            with st.spinner("Réflexion de l'assistant..."):
-                try:
-                    reponse = ask_question(user_input)
-                    st.markdown(reponse)
-                    
-                    # Lecture vocale
-                    with st.spinner("🔊 Génération de l'audio..."):
-                        audio_file = text_to_speech(reponse)
-                        if audio_file:
-                            st.audio(audio_file, format='audio/mp3')
-                            st.success("✅ Vous pouvez écouter la réponse ci-dessus")
-                except Exception as e:
-                    st.error(f"Erreur : {e}")
-
-        # Nettoyage
-        try:
-            os.unlink(tmp_file_path)
+            r.adjust_for_ambient_noise(source, duration=0.5)
+            audio = r.listen(source, timeout=8, phrase_time_limit=10)
+            placeholder.success("✅ Reçu !")
+            texte = r.recognize_google(audio, language="fr-FR")
+            time.sleep(1)
+            placeholder.empty()
+            return texte
         except:
-            pass
+            placeholder.warning("Je n'ai rien entendu.")
+            return None
 
-else:
-    st.info("👈 Veuillez commencer par charger un document (PDF ou image) dans le menu de gauche.")
+def analyser_profil_senior(texte):
+    """Analyse pour Senior"""
+    if not os.getenv("OPENAI_API_KEY"): return "⚠️ Clé API manquante."
+    llm = ChatOpenAI(model="gpt-3.5-turbo", temperature=0.5)
+    prompt = ChatPromptTemplate.from_template("""
+    Tu es l'IA d'AgoraGen. Analyse ce récit de senior : "{recit}"
+    Extrais 3 Compétences Clés (Savoir-faire ou Soft Skills).
+    Réponds en HTML simple.
+    """)
+    return (prompt | llm | StrOutputParser()).invoke({"recit": texte})
+
+def analyser_profil_jeune(texte):
+    """Analyse pour Jeune (Nouveau !)"""
+    if not os.getenv("OPENAI_API_KEY"): return "⚠️ Clé API manquante."
+    llm = ChatOpenAI(model="gpt-3.5-turbo", temperature=0.5)
+    prompt = ChatPromptTemplate.from_template("""
+    Tu es l'IA d'AgoraGen. Analyse ce récit d'un jeune : "{recit}"
+    
+    Tâche :
+    1. Détermine sa CATÉGORIE (Étudiant, Entrepreneur, Chercheur d'emploi).
+    2. Identifie ses BESOINS principaux (ex: Gestion stress, Aide projet, Mathématiques).
+    3. Résume son profil en 2 lignes.
+    
+    Réponds en HTML simple avec des <b> pour les titres.
+    """)
+    return (prompt | llm | StrOutputParser()).invoke({"recit": texte})
+
+# =========================================================
+# 4. PAGE D'ACCUEIL (INSCRIPTION / CONNEXION)
+# =========================================================
+db_users = charger_donnees()
+
+if st.session_state['user_status'] is None:
+    st.markdown("<h1 style='text-align: center; color: #2C3E50;'>Bienvenue sur AgoraGen 💙</h1>", unsafe_allow_html=True)
+    st.markdown("---")
+    
+    c1, c2 = st.columns(2)
+    with c1:
+        st.subheader("📝 Inscription")
+        role = st.selectbox("Je suis...", ["Choisir...", "Senior (60+)", "Jeune / Étudiant", "Entreprise"])
+        if st.button("CRÉER MON COMPTE", type="primary"):
+            if role != "Choisir...":
+                uid = f"{role[:3].upper()}-{str(uuid.uuid4().hex)[:4].upper()}"
+                db_users[uid] = {'role': role, 'profil_ia': None}
+                sauvegarder_donnees(db_users)
+                st.success(f"Compte créé ! ID : {uid}")
+                st.info("Notez bien cet identifiant.")
+    
+    with c2:
+        st.subheader("🔐 Connexion")
+        uid_input = st.text_input("Votre Identifiant :")
+        if st.button("SE CONNECTER"):
+            db_users = charger_donnees() # Rafraichir
+            if uid_input.strip() in db_users:
+                st.session_state['user_status'] = 'connecte'
+                st.session_state['current_user_id'] = uid_input.strip()
+                st.session_state['user_type'] = db_users[uid_input.strip()]['role']
+                st.rerun()
+            else:
+                st.error("Identifiant inconnu.")
+
+# =========================================================
+# 5. ESPACE CONNECTÉ
+# =========================================================
+elif st.session_state['user_status'] == 'connecte':
+    uid = st.session_state['current_user_id']
+    user_data = db_users.get(uid)
+    role = user_data['role']
+    
+    # --- BARRE DE NAVIGATION (SIDEBAR) ---
+    with st.sidebar:
+        st.title("💙 Menu")
+        st.markdown(f"**ID:** `{uid}`")
+        color = "#2ecc71" if "Senior" in role else "#3498db" if "Jeune" in role else "#e67e22"
+        st.markdown(f'<span class="role-badge" style="background-color:{color}">{role}</span>', unsafe_allow_html=True)
+        st.markdown("---")
+        
+        # MENU NAVIGATION JEUNE
+        if "Jeune" in role:
+            if st.button("👤 Mon Profil", use_container_width=True): st.session_state['page_active'] = "profil"
+            if st.button("🤝 Mentorat", use_container_width=True): st.session_state['page_active'] = "mentorat"
+            if st.button("📜 Certification", use_container_width=True): st.session_state['page_active'] = "certification"
+        
+        # MENU SENIOR (Simple pour l'instant)
+        elif "Senior" in role:
+             if st.button("👤 Mon Profil", use_container_width=True): st.session_state['page_active'] = "profil"
+
+        st.markdown("---")
+        if st.button("🔒 Déconnexion"):
+            st.session_state['user_status'] = None
+            st.rerun()
+
+    # --- CONTENU PRINCIPAL ---
+    
+    # =====================================================
+    # ONGLET 1 : MON PROFIL (Commun à tous, mais adapté)
+    # =====================================================
+    if st.session_state['page_active'] == "profil":
+        st.header(f"👤 Mon Profil ({role})")
+        
+        # Si profil vide -> On lance le remplissage IA
+        if user_data.get('profil_ia') is None:
+            st.info("⚠️ Votre profil est vide. Discutons pour le remplir !")
+            
+            if st.button("🤖 PARLER À L'IA (Remplir profil)", use_container_width=True):
+                st.session_state['mode_ecoute'] = True
+
+            if st.session_state.get('mode_ecoute'):
+                st.markdown('<div class="chat-bubble"><b>🤖 IA :</b> Racontez-moi votre situation (Études, Projets, Besoins...).</div>', unsafe_allow_html=True)
+                
+                c1, c2 = st.columns([1,3])
+                with c1:
+                    if st.button("🎙️ MICRO"):
+                        txt = ecouter_micro()
+                        if txt: st.session_state['transcript_temp'] = txt
+                        st.rerun()
+                with c2:
+                    if st.session_state['transcript_temp']:
+                        st.text_area("Entendu :", st.session_state['transcript_temp'])
+                        if st.button("✨ Valider et Analyser"):
+                            with st.spinner("Analyse..."):
+                                # CHOIX DE L'IA SELON LE ROLE
+                                if "Senior" in role:
+                                    res = analyser_profil_senior(st.session_state['transcript_temp'])
+                                else:
+                                    res = analyser_profil_jeune(st.session_state['transcript_temp'])
+                                
+                                db_users[uid]['profil_ia'] = res
+                                sauvegarder_donnees(db_users)
+                                st.session_state['mode_ecoute'] = False
+                                st.session_state['transcript_temp'] = ""
+                                st.rerun()
+
+        # Si profil rempli -> On affiche
+        else:
+            st.success("✅ Profil complet")
+            st.markdown(f'<div class="chat-bubble" style="border-left: 5px solid {color};">{user_data["profil_ia"]}</div>', unsafe_allow_html=True)
+            if st.button("🗑️ Effacer mon profil pour recommencer"):
+                db_users[uid]['profil_ia'] = None
+                sauvegarder_donnees(db_users)
+                st.rerun()
+
+    # =====================================================
+    # ONGLET 2 : MENTORAT (Uniquement pour Jeunes)
+    # =====================================================
+    elif st.session_state['page_active'] == "mentorat":
+        st.header("🤝 Mentorat & Mise en relation")
+        
+        # Vérification : Le jeune a-t-il rempli son profil ?
+        if user_data.get('profil_ia') is None:
+            st.warning("⛔ Vous devez d'abord remplir votre profil (Onglet 'Mon Profil') pour que l'IA puisse trouver le bon mentor.")
+        else:
+            st.markdown("### 🔍 Mentors recommandés pour vous")
+            
+            found_mentor = False
+            for u_id, u_data in db_users.items():
+                # On cherche des seniors avec un profil rempli
+                if "Senior" in u_data['role'] and u_data.get('profil_ia'):
+                    found_mentor = True
+                    st.markdown(f"""
+                    <div class="chat-bubble" style="border-left: 5px solid #2ecc71;">
+                        <h4>👴 Senior ID: {u_id}</h4>
+                        {u_data['profil_ia']}
+                        <hr>
+                        <button style="background:#2ecc71;color:white;border:none;padding:5px;border-radius:5px;">📞 Contacter pour Mentorat</button>
+                    </div>
+                    """, unsafe_allow_html=True)
+            
+            if not found_mentor:
+                st.info("🕵️ Aucun mentor senior disponible pour l'instant. Revenez plus tard !")
+
+    # =====================================================
+    # ONGLET 3 : CERTIFICATION (Uniquement pour Jeunes)
+    # =====================================================
+    elif st.session_state['page_active'] == "certification":
+        st.header("📜 Certification par des Experts")
+        st.write("Obtenez une validation de vos compétences par nos seniors experts.")
+        
+        # Logique demandée : Vérifier s'il y a des experts certifiés (Vide pour l'instant)
+        experts_dispo = False # À changer plus tard quand on codera la partie expert
+        
+        if not experts_dispo:
+            st.warning("⚠️ Aucun Expert Certifié disponible pour valider vos compétences pour l'instant.")
+            st.info("Cette fonctionnalité sera bientôt activée une fois les premiers seniors validés.")
+        else:
+            st.success("Voici les experts disponibles...")

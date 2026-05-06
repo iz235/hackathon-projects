@@ -1,0 +1,476 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Neon Drive - Empathy Edition</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;700&display=swap');
+
+        :root {
+            --bg-color: #05010a;
+            --neon-pink: #ff00ff;
+            --neon-blue: #00ffff;
+            --neon-yellow: #fcee0a;
+            --neon-green: #00ff66;
+            --card-bg: #111;
+        }
+
+        body { margin: 0; overflow: hidden; background-color: var(--bg-color); font-family: 'Orbitron', sans-serif; color: white; touch-action: none; }
+        
+        /* COUCHES */
+        #ui-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 10; }
+        
+        /* ECRANS */
+        .screen {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(5, 1, 10, 0.98);
+            display: flex; flex-direction: column;
+            justify-content: center; align-items: center;
+            pointer-events: auto;
+            transition: opacity 0.3s;
+            padding: 10px; box-sizing: border-box;
+            overflow-y: auto; /* Permet le scroll si l'écran est petit */
+        }
+        .hidden { opacity: 0; pointer-events: none; display: none !important; }
+
+        /* TYPOGRAPHIE */
+        h1 { font-size: 2rem; text-align: center; color: var(--neon-blue); text-shadow: 0 0 15px var(--neon-blue); margin-bottom: 15px; }
+        h2 { color: var(--neon-yellow); margin-bottom: 10px; text-align: center; font-size: 1.5rem; }
+        p { font-family: 'Roboto', sans-serif; line-height: 1.4; color: #ccc; text-align: center; font-size: 1rem; }
+
+        /* BOUTONS */
+        .btn {
+            background: rgba(0,0,0,0.8); border: 2px solid var(--neon-blue); color: white;
+            padding: 15px 20px; font-size: 1rem; font-family: 'Orbitron', sans-serif;
+            margin: 10px auto; cursor: pointer; text-transform: uppercase;
+            box-shadow: 0 0 15px rgba(0, 255, 255, 0.2); transition: all 0.2s;
+            width: 100%; max-width: 300px; border-radius: 8px; display: block;
+        }
+        .btn:hover { background: var(--neon-blue); color: black; transform: scale(1.02); }
+
+        /* GRILLE DE NIVEAUX */
+        .level-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; width: 100%; max-width: 500px; margin-top: 20px; }
+        .level-card {
+            background: #1a1a1a; border: 2px solid #444; padding: 20px 5px;
+            text-align: center; border-radius: 12px; cursor: not-allowed;
+            color: #555; transition: 0.3s; position: relative;
+        }
+        .level-card .icon { font-size: 2rem; display: block; margin-bottom: 5px; }
+        .level-card.active { border-color: var(--neon-yellow); color: white; cursor: pointer; animation: pulse 2s infinite; }
+        .level-card.completed { border-color: var(--neon-green); color: var(--neon-green); cursor: pointer; }
+        @keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.03); } 100% { transform: scale(1); } }
+
+        /* HUD JEU */
+        #hud { position: absolute; top: 15px; left: 15px; right: 15px; display: flex; justify-content: space-between; pointer-events: none; }
+        .bar-container { width: 80px; height: 8px; background: #333; border: 1px solid #555; transform: skewX(-20deg); overflow: hidden; }
+        .bar-fill { height: 100%; background: var(--neon-blue); width: 0%; transition: width 0.2s; }
+        .battery-container { display: flex; gap: 3px; }
+        .battery { width: 25px; height: 12px; border: 2px solid var(--neon-pink); background: transparent; transform: skewX(-20deg); }
+        .battery.full { background: var(--neon-pink); box-shadow: 0 0 10px var(--neon-pink); }
+
+        /* MODAL STICKERS (Le Nouveau Concept) */
+        .modal-box {
+            border: 2px solid var(--neon-yellow); padding: 20px; border-radius: 15px;
+            max-width: 600px; width: 100%; background: #111; text-align: center;
+            box-shadow: 0 0 40px rgba(252, 238, 10, 0.15);
+            /* Important pour le responsive : */
+            max-height: 90vh; overflow-y: auto;
+        }
+        
+        .sticker-container {
+            display: flex; gap: 15px; flex-wrap: wrap; justify-content: center;
+            margin-top: 20px; margin-bottom: 20px;
+        }
+
+        .sticker-card {
+            flex: 1; min-width: 140px;
+            background: #1f1f1f; border: 3px solid #333; border-radius: 20px;
+            padding: 15px; cursor: pointer; transition: 0.2s;
+            display: flex; flex-direction: column; align-items: center;
+            position: relative;
+        }
+        .sticker-card:hover { border-color: var(--neon-blue); background: #2a2a2a; transform: translateY(-3px); }
+        
+        .sticker-emoji { font-size: 4rem; margin-bottom: 10px; transition: transform 0.2s; }
+        .sticker-card:hover .sticker-emoji { transform: scale(1.1); }
+        
+        .sticker-text {
+            font-family: 'Orbitron', sans-serif; font-size: 0.9rem; color: #fff;
+            background: rgba(0,0,0,0.3); padding: 8px; border-radius: 8px; width: 100%;
+            text-transform: uppercase; font-weight: bold;
+        }
+
+        .feedback { 
+            margin-top: 15px; padding: 15px; border-radius: 8px; display: none; 
+            animation: fadeIn 0.5s;
+        }
+        .feedback.success { border: 1px solid lime; color: #aaffaa; background: rgba(0, 255, 0, 0.1); }
+        .feedback.error { border: 1px solid red; color: #ffaaaa; background: rgba(255, 0, 0, 0.1); }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+        .loader { border: 4px solid #222; border-top: 4px solid var(--neon-blue); border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 20px auto; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+    </style>
+</head>
+<body>
+
+    <canvas id="gameCanvas"></canvas>
+
+    <div id="ui-layer">
+        
+        <div id="hud" class="hidden">
+            <div>
+                <div id="level-display" style="color:var(--neon-yellow)">NIVEAU 1</div>
+                <div class="bar-container"><div id="progress-bar" class="bar-fill"></div></div>
+            </div>
+            <div class="battery-container">
+                <div class="battery full" id="b1"></div>
+                <div class="battery full" id="b2"></div>
+                <div class="battery full" id="b3"></div>
+            </div>
+        </div>
+
+        <div id="home-screen" class="screen">
+            <h1>GENERATION RUN<br><span style="font-size:1rem; color:var(--neon-pink)">CHANGER DE REGARD</span></h1>
+            <p>Conduis. Ressens. Évolue.</p>
+            <button class="btn" style="border-color:var(--neon-green)" onclick="goToLevelSelect('easy')">🟢 DÉBUTANT</button>
+            <button class="btn" style="border-color:var(--neon-yellow)" onclick="goToLevelSelect('medium')">🟡 CONFIRMÉ</button>
+            <button class="btn" style="border-color:var(--neon-pink)" onclick="goToLevelSelect('hard')">🔴 EXPERT</button>
+        </div>
+
+        <div id="level-select-screen" class="screen hidden">
+            <h1 id="mode-title">MODE DÉBUTANT</h1>
+            <p>Débloque les niveaux en faisant les bons choix.</p>
+            <div class="level-grid" id="level-grid"></div>
+            <button class="btn" style="margin-top:20px; border-color:#555" onclick="backToHome()">RETOUR</button>
+        </div>
+
+        <div id="riddle-screen" class="screen hidden">
+            <h2 id="riddle-title" style="letter-spacing: 1px;">SITUATION D'AVENIR</h2>
+            <div class="modal-box">
+                <p id="context-text" style="color:#fff; font-size:1.1rem; margin-bottom:20px;">Imagine...</p>
+                
+                <div id="loader" class="loader hidden"></div>
+                
+                <div id="riddle-content">
+                    <p style="font-size:0.9rem; color:#aaa;">Comment imagines-tu ta réalité ?</p>
+                    
+                    <div id="sticker-area" class="sticker-container"></div>
+                    
+                    <div id="feedback-area" class="feedback"></div>
+                </div>
+            </div>
+        </div>
+
+        <div id="revive-screen" class="screen hidden">
+            <div class="modal-box" style="border-color:var(--neon-pink)">
+                <h2 style="color:var(--neon-pink)">IMPACT !</h2>
+                <p>Tu as heurté un préjugé.</p>
+                <button class="btn" style="border-color:var(--neon-green)" onclick="initiateRiddle('revive')">⚡ CHANGER DE REGARD (+3 VIES)</button>
+                <button class="btn" style="border-color:#555" onclick="backToLevelSelect()">ABANDONNER</button>
+            </div>
+        </div>
+
+        <div id="win-screen" class="screen hidden">
+            <div class="modal-box" style="border-color:var(--neon-green)">
+                <h2 style="color:var(--neon-green)">HORIZON DÉGAGÉ !</h2>
+                <p>Tu as ouvert la voie.</p>
+                <button class="btn" onclick="backToLevelSelect()">MENU NIVEAUX >></button>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        // --- API KEY ---
+        const API_KEY = "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";
+
+        // --- CONFIG ---
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+
+        let gameState = 'menu';
+        let currentMode = 'easy';
+        let unlockedLevel = 1;
+        let targetLevel = 1;
+        let energy = 3;
+        
+        const levels = {
+            1: { speed: 10, distance: 30000, density: 0.02 },
+            2: { speed: 13, distance: 40000, density: 0.035 },
+            3: { speed: 16, distance: 50000, density: 0.05 }
+        };
+
+        let car = { x: 0, y: 0, w: 46, h: 80, color: '#00ffff' };
+        let obstacles = [];
+        let distanceTraveled = 0;
+        let riddleContext = ''; 
+
+        // --- INIT ---
+        function resize() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            car.y = canvas.height - 180;
+            car.x = canvas.width / 2 - 23;
+        }
+        window.addEventListener('resize', resize);
+        resize();
+
+        // --- NAVIGATION ---
+        function backToHome() { hideAllScreens(); document.getElementById('home-screen').classList.remove('hidden'); }
+
+        function goToLevelSelect(mode) {
+            currentMode = mode;
+            hideAllScreens();
+            document.getElementById('level-select-screen').classList.remove('hidden');
+            renderLevelGrid();
+        }
+
+        function backToLevelSelect() {
+            if (gameState === 'win' && targetLevel === unlockedLevel && unlockedLevel < 3) unlockedLevel++;
+            gameState = 'menu';
+            goToLevelSelect(currentMode);
+        }
+
+        function renderLevelGrid() {
+            const grid = document.getElementById('level-grid');
+            grid.innerHTML = '';
+            for(let i=1; i<=3; i++) {
+                let div = document.createElement('div');
+                let statusClass = i < unlockedLevel ? 'completed' : (i === unlockedLevel ? 'active' : 'locked');
+                let icon = i < unlockedLevel ? '✅' : (i === unlockedLevel ? '🚀' : '🔒');
+                
+                div.className = `level-card ${statusClass}`;
+                div.innerHTML = `<span class="icon">${icon}</span><span class="label">NIVEAU ${i}</span>`;
+                if (i <= unlockedLevel) div.onclick = () => tryStartLevel(i);
+                grid.appendChild(div);
+            }
+        }
+
+        function hideAllScreens() {
+            document.querySelectorAll('.screen').forEach(s => s.classList.add('hidden'));
+            document.getElementById('hud').classList.add('hidden');
+        }
+
+        // --- LOGIQUE JEU EMPATHIE ---
+        function tryStartLevel(lvl) { targetLevel = lvl; initiateRiddle('unlock'); }
+
+        function initiateRiddle(context) {
+            riddleContext = context;
+            hideAllScreens();
+            document.getElementById('riddle-screen').classList.remove('hidden');
+            
+            // Titres différents selon contexte
+            const title = document.getElementById('riddle-title');
+            title.innerText = context === 'revive' ? "JAUGE D'EMPATHIE" : "VISION DU FUTUR";
+            title.style.color = context === 'revive' ? "var(--neon-pink)" : "var(--neon-yellow)";
+
+            fetchEmpathyScenario(context);
+        }
+
+        // --- GAME ENGINE ---
+        function startGameAfterRiddle() {
+            hideAllScreens();
+            document.getElementById('hud').classList.remove('hidden');
+            energy = 3; distanceTraveled = 0; obstacles = [];
+            car.x = canvas.width / 2 - 23;
+            gameState = 'playing';
+            document.getElementById('level-display').innerText = `NIVEAU ${targetLevel}`;
+            updateHUD(); gameLoop();
+        }
+
+        function reviveGame() {
+            hideAllScreens(); document.getElementById('hud').classList.remove('hidden');
+            energy = 3; obstacles = []; gameState = 'playing'; updateHUD(); gameLoop();
+        }
+
+        function gameLoop() {
+            if (gameState !== 'playing') return;
+            ctx.fillStyle = '#05010a'; ctx.fillRect(0,0,canvas.width,canvas.height);
+            drawRoad();
+
+            let config = levels[targetLevel];
+            if (Math.random() < config.density) spawnObstacle();
+
+            obstacles.forEach((obs, i) => {
+                obs.y += config.speed;
+                ctx.fillStyle = '#ff0055'; ctx.shadowBlur = 10; ctx.shadowColor = 'red';
+                ctx.fillRect(obs.x, obs.y, obs.w, obs.h);
+                // Petit texte "PREJUGÉ" sur l'obstacle
+                ctx.fillStyle = 'white'; ctx.font = '9px Arial'; ctx.fillText("PRÉJUGÉ", obs.x+2, obs.y+20);
+                ctx.shadowBlur = 0;
+
+                if (checkCollision(car, obs)) { obstacles.splice(i, 1); hitObstacle(); }
+                if (obs.y > canvas.height) obstacles.splice(i, 1);
+            });
+
+            drawCar();
+            distanceTraveled += config.speed;
+            updateHUD();
+
+            if (distanceTraveled >= config.distance) winLevel();
+            requestAnimationFrame(gameLoop);
+        }
+
+        function spawnObstacle() { obstacles.push({ x: Math.random() * (canvas.width - 80) + 20, y: -50, w: 50, h: 40 }); }
+        function hitObstacle() {
+            energy--;
+            canvas.style.transform = "translate(5px, 5px)"; setTimeout(() => canvas.style.transform = "translate(0,0)", 50);
+            if (energy <= 0) { gameState = 'gameover'; document.getElementById('revive-screen').classList.remove('hidden'); }
+        }
+        function winLevel() { gameState = 'win'; document.getElementById('win-screen').classList.remove('hidden'); }
+        function updateHUD() {
+            let config = levels[targetLevel];
+            let pct = Math.min(100, (distanceTraveled / config.distance) * 100);
+            document.getElementById('progress-bar').style.width = `${pct}%`;
+            for(let i=1; i<=3; i++) document.getElementById('b'+i).className = i <= energy ? 'battery full' : 'battery';
+        }
+
+        // --- DRAWING ---
+        function drawCar() { ctx.fillStyle = car.color; ctx.shadowBlur = 20; ctx.shadowColor = car.color; ctx.beginPath(); ctx.moveTo(car.x, car.y + car.h); ctx.lineTo(car.x + car.w, car.y + car.h); ctx.lineTo(car.x + car.w/2, car.y); ctx.fill(); ctx.shadowBlur = 0; }
+        function drawRoad() { ctx.strokeStyle = 'rgba(189, 0, 255, 0.3)'; ctx.beginPath(); let config = levels[targetLevel] || levels[1]; for(let i=-canvas.width; i<canvas.width*2; i+=120) { ctx.moveTo(i, canvas.height); ctx.lineTo(canvas.width/2, canvas.height/2 - 100); } let offset = (Date.now() * config.speed * 0.8) % 60; for(let i=0; i<canvas.height/2; i+=40) { let y = canvas.height - i + offset; if(y>canvas.height) y-=60; ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); } ctx.stroke(); }
+        function checkCollision(a, b) { return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y; }
+        // CONTROLES
+        function moveCar(dir) { if (gameState !== 'playing') return; if (dir === 'left' && car.x > 0) car.x -= 40; if (dir === 'right' && car.x < canvas.width - car.w) car.x += 40; }
+        document.addEventListener('keydown', e => { if (e.key === 'ArrowLeft') moveCar('left'); if (e.key === 'ArrowRight') moveCar('right'); });
+        document.addEventListener('touchstart', e => { if (e.touches[0].clientX < window.innerWidth/2) moveCar('left'); else moveCar('right'); });
+
+        // --- IA & STICKERS (NOUVEAU CONCEPT) ---
+        
+        async function fetchEmpathyScenario(context) {
+            const loader = document.getElementById('loader');
+            const stickerArea = document.getElementById('sticker-area');
+            const contextText = document.getElementById('context-text');
+            
+            loader.classList.remove('hidden');
+            stickerArea.innerHTML = ''; 
+            document.getElementById('feedback-area').style.display = 'none';
+            contextText.innerText = "L'IA génère une situation de vie...";
+
+            const themes = ["Technologie", "Amour", "Sport", "Fête", "Travail", "Voyage"];
+            const theme = themes[Math.floor(Math.random() * themes.length)];
+
+            // PROMPT OPTIMISÉ POUR STICKERS & SENSATION
+            const systemPrompt = "Tu es un générateur de scénarios d'empathie. Tu dois créer une situation courte sur le vieillissement et deux options visuelles (Emoji + Court Texte).";
+            
+            const userPrompt = `Thème : ${theme}.
+            Génère un JSON avec :
+            1. 'situation' : Une phrase courte : "Tu as 75 ans et..."
+            2. 'choices' : Deux choix.
+               - Option A (Cliché/Triste) : Un Emoji qui fait 'vieux jeu' + 3 mots maximum.
+               - Option B (Réalité/Moderne) : Un Emoji dynamique/cool + 3 mots maximum.
+            3. 'explanation' : Une phrase choc qui change la vision (ex: "Les seniors sont les plus gros consommateurs de tech").
+
+            Format JSON :
+            {
+                "situation": "Tu as 75 ans et tu cherches l'amour...",
+                "choices": [
+                    { "type": "CLICHE", "emoji": "🧶", "text": "Tricot solo" },
+                    { "type": "REALITY", "emoji": "🔥", "text": "Dating App" }
+                ],
+                "explanation": "20% des utilisateurs de Tinder ont plus de 50 ans."
+            }`;
+
+            try {
+                const response = await fetch("https://api.openai.com/v1/chat/completions", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${API_KEY}` },
+                    body: JSON.stringify({
+                        model: "gpt-3.5-turbo",
+                        messages: [
+                            { role: "system", content: systemPrompt },
+                            { role: "user", content: userPrompt }
+                        ],
+                        temperature: 0.8
+                    })
+                });
+                const data = await response.json();
+                let text = data.choices[0].message.content;
+                if(text.includes('```json')) { text = text.split('```json')[1].split('```')[0]; }
+                
+                const parsedData = JSON.parse(text);
+                displayStickers(parsedData);
+                
+            } catch (e) {
+                console.error(e);
+                // Fallback
+                displayStickers({
+                    situation: "Tu as 80 ans, on te propose de jouer...",
+                    choices: [
+                        { type: "CLICHE", emoji: "📺", text: "Regarder la TV" },
+                        { type: "REALITY", emoji: "🎮", text: "Battre le boss" }
+                    ],
+                    explanation: "Les 'Silver Gamers' sont la communauté qui grandit le plus vite."
+                });
+            }
+            loader.classList.add('hidden');
+        }
+
+        function displayStickers(data) {
+            const contextText = document.getElementById('context-text');
+            const area = document.getElementById('sticker-area');
+            
+            contextText.innerText = data.situation;
+            
+            // Mélange
+            let choices = data.choices.sort(() => Math.random() - 0.5);
+            
+            choices.forEach(c => {
+                let card = document.createElement('div');
+                card.className = 'sticker-card';
+                card.innerHTML = `
+                    <div class="sticker-emoji">${c.emoji}</div>
+                    <div class="sticker-text">${c.text}</div>
+                `;
+                card.onclick = () => handleChoice(c, data.explanation);
+                area.appendChild(card);
+            });
+        }
+
+        // --- SYSTEME DE RÉCUPÉRATION DES RÉPONSES (DATA LOOP) ---
+        function sendDataToAnalysis(choiceType, situation) {
+            // C'est ici qu'on enverrait les données vers une vraie BDD
+            console.log(`[DATA LOG] User Choice: ${choiceType} on Situation: "${situation}"`);
+            // Exemple : fetch('[https://mon-serveur.com/api/log](https://mon-serveur.com/api/log)', { ... })
+        }
+
+        function handleChoice(choice, explanation) {
+            const fb = document.getElementById('feedback-area');
+            fb.style.display = 'block';
+            
+            // On loggue la réponse (Simulation IA récupération)
+            sendDataToAnalysis(choice.type, document.getElementById('context-text').innerText);
+
+            if (choice.type === 'REALITY') {
+                fb.className = 'feedback success';
+                let actionText = riddleContext === 'unlock' ? 'GO !' : 'REPRENDRE';
+                fb.innerHTML = `
+                    <strong style="font-size:1.2rem">OUI ! C'EST ÇA LA RÉALITÉ.</strong><br>
+                    <div style="margin:10px 0; color:#fff; font-style:italic;">"${explanation}"</div>
+                    <button id="continue-btn" class="btn" onclick="riddleSuccess()">${actionText}</button>
+                `;
+            } else {
+                fb.className = 'feedback error';
+                fb.innerHTML = `
+                    <strong>NON, C'EST UN CLICHÉ.</strong><br>
+                    <div style="margin:10px 0; color:#fff;">"${explanation}"</div>
+                    Retente ta chance !
+                `;
+            }
+            
+            // SCROLL AUTOMATIQUE pour voir le bouton sur mobile
+            setTimeout(() => {
+                fb.scrollIntoView({ behavior: "smooth", block: "end" });
+            }, 100);
+        }
+
+        function riddleSuccess() {
+            if (riddleContext === 'unlock') startGameAfterRiddle();
+            else reviveGame();
+        }
+    </script>
+</body>
+</html>
